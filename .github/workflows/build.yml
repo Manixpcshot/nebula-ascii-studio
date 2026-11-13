@@ -165,13 +165,20 @@ jobs:
           set -euo pipefail
           version="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
           test "$GITHUB_REF_NAME" = "v$version"
-          cd packages
+          mkdir release-files
+          while IFS= read -r -d '' file; do
+            cp -- "$file" release-files/
+          done < <(find packages -type f \( -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.apk' \) -print0)
+          cd release-files
           shopt -s nullglob
           windows=(*.exe)
           deb=(*.deb)
           appimage=(*.AppImage)
           android=(*.apk)
-          test "${#windows[@]}" -eq 1 && test "${#deb[@]}" -eq 1 && test "${#appimage[@]}" -eq 1 && test "${#android[@]}" -eq 1
+          test "${#windows[@]}" -eq 1
+          test "${#deb[@]}" -eq 1
+          test "${#appimage[@]}" -eq 1
+          test "${#android[@]}" -eq 1
           sha256sum *.exe *.deb *.AppImage *.apk > SHA256SUMS.txt
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" *.exe *.deb *.AppImage *.apk SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
