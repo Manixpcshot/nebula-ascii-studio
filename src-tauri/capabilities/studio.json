@@ -1,0 +1,11 @@
+{
+  "identifier": "studio",
+  "description": "File save and clipboard actions initiated by the studio user",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-save",
+    "fs:allow-write-file",
+    "clipboard-manager:allow-write-text"
+  ]
+}
