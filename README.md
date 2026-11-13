@@ -21,7 +21,7 @@ npm run tauri -- dev
 
 Run `npm run build` to type check and bundle the UI, and `cargo test --locked --manifest-path src-tauri/Cargo.toml` to test the Rust conversion engine. The browser UI calls the Rust engine through Tauri, so use the Tauri command to run the app.
 
-For Android, set up JDK 21 and Android SDK/NDK according to the Tauri guide. Install SDK platforms 36 and 37, build tools 36.0.0 and NDK 28.2.13676358, and point `NDK_HOME` at that NDK.
+For Android, set up JDK 21 and Android SDK/NDK according to the Tauri guide. Install SDK platforms 36 and 37.0, build tools 36.0.0 and NDK 28.2.13676358, and point `NDK_HOME` at that NDK.
 
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
