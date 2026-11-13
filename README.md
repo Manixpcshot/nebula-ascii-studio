@@ -8,7 +8,7 @@ Nebula converts photographs into colored character art on your device. Choose a 
 - **Linux x64** · Debian package or AppImage
 - **Android** · Signed APK for ARM64 and x86-64
 
-Open JPG, PNG, WebP, BMP or TIFF files up to 24 MB and 32 megapixels. Choose Ultra Detail, RGB Photo or Portrait, then adjust width, contrast, brightness, palette and character density. Export PNG, plain text, interactive HTML, or an original/ASCII comparison PNG. The image, gallery and preferences stay on the device. Use the bundled samples to try the app.
+Open JPG, PNG, WebP, BMP or TIFF files up to 24 MB and 32 megapixels. Choose Ultra Detail, RGB Photo or Portrait, then adjust width, contrast, brightness, palette and character density. Export PNG, plain text, interactive HTML, or an original/ASCII comparison PNG. The image, gallery and preferences stay on the device. Use the bundled samples, including the generated caracal photograph, to try the app. Persian is the default interface language. Switch to English in Settings or enable reduced motion there.
 
 ### Development
 
@@ -39,4 +39,4 @@ Tagged Android builds use a persistent PKCS#12 keystore with alias `nebula`. Con
 
 The Tauri interface is in `src/` and the Rust image pipeline and exporters are in `src-tauri/src/`. The previous Python terminal edition remains available through `main.py` and `requirements.txt`. Bug reports and pull requests are welcome. For rendering issues, include the operating system, app version, rendering settings and a shareable example.
 
-The project is MIT licensed. The bundled IBM Plex Mono and Space Grotesk fonts use the SIL Open Font License. Interface icons are from Lucide under the ISC license. Third-party notices are included in `licenses/`.
+The project is MIT licensed. The bundled IBM Plex Mono, Space Grotesk and Vazirmatn fonts use the SIL Open Font License. Interface icons are from Lucide under the ISC license. Third-party notices are included in `licenses/`.

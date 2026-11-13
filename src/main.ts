@@ -17,6 +17,10 @@ import icon15 from 'lucide-static/icons/sparkles.svg?raw';
 import icon16 from 'lucide-static/icons/download.svg?raw';
 import icon17 from 'lucide-static/icons/bookmark.svg?raw';
 import icon18 from 'lucide-static/icons/trash-2.svg?raw';
+import languagesIcon from 'lucide-static/icons/languages.svg?raw';
+import photoIcon from 'lucide-static/icons/image.svg?raw';
+import gridIcon from 'lucide-static/icons/grid-3x3.svg?raw';
+import { messages, type Locale, type Message } from './i18n';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
@@ -25,6 +29,7 @@ import '@fontsource/space-grotesk/latin-400.css';
 import '@fontsource/space-grotesk/latin-500.css';
 import '@fontsource/space-grotesk/latin-700.css';
 import '@fontsource/ibm-plex-mono/latin-400.css';
+import '@fontsource-variable/vazirmatn';
 import './style.css';
 
 type Options = {
@@ -40,7 +45,7 @@ type Preview = {
   originalWidth: number; originalHeight: number;
 };
 type Project = { id: string; name: string; created: number; file: Blob; options: Options; thumb: string };
-type Preferences = { autoRender: boolean; reduceMotion: boolean; defaults: Options };
+type Preferences = { language: Locale; autoRender: boolean; reduceMotion: boolean; defaults: Options };
 type ExportFormat = 'png' | 'html' | 'txt' | 'comparison';
 type View = 'studio' | 'gallery' | 'settings';
 
@@ -48,19 +53,20 @@ const defaults: Options = {
   mode: 'ultra_detail', palette: 'truecolor', width: 150,
   contrast: 1, brightness: 1, invert: false,
 };
-const initialPreferences: Preferences = { autoRender: true, reduceMotion: false, defaults };
-const modes: Record<Options['mode'], string> = { ultra_detail: 'Ultra detail', rgb_photo: 'RGB photo', portrait: 'Portrait' };
-const palettes: Record<Options['palette'], string> = {
-  truecolor: 'True color', grayscale: 'Grayscale', mono_green: 'Matrix green', mono_amber: 'Amber',
+const initialPreferences: Preferences = { language: 'fa', autoRender: true, reduceMotion: false, defaults };
+const modes: Record<Options['mode'], Message> = { ultra_detail: 'ultraDetail', rgb_photo: 'rgbPhoto', portrait: 'portrait' };
+const palettes: Record<Options['palette'], Message> = {
+  truecolor: 'truecolor', grayscale: 'grayscale', mono_green: 'monoGreen', mono_amber: 'monoAmber',
 };
+const featured = { file: 'caracal-twilight.png', title: 'caracal' } as const;
 const samples = [
-  { file: 'landscape_sunset.jpg', title: 'Sunset ridge' },
-  { file: 'portrait_hd.jpg', title: 'Studio portrait' },
-  { file: 'vivid_colors.jpg', title: 'Color study' },
-];
-const formats: Record<ExportFormat, [string, string]> = {
-  png: ['PNG artwork', 'png'], html: ['Interactive HTML', 'html'],
-  txt: ['Plain text', 'txt'], comparison: ['Before / after PNG', 'png'],
+  { file: 'landscape_sunset.jpg', title: 'sunset' },
+  { file: 'portrait_hd.jpg', title: 'portraitSample' },
+  { file: 'vivid_colors.jpg', title: 'colorStudy' },
+] as const;
+const formats: Record<ExportFormat, [Message, string]> = {
+  png: ['png', 'png'], html: ['html', 'html'],
+  txt: ['txt', 'txt'], comparison: ['comparison', 'png'],
 };
 
 const icons: Record<string, string> = {
@@ -93,12 +99,16 @@ function readPreferences(): Preferences {
   try {
     const saved = JSON.parse(localStorage.getItem('nebula.preferences') ?? 'null');
     if (saved && typeof saved === 'object') {
-      return { ...initialPreferences, ...saved, defaults: { ...defaults, ...saved.defaults } };
+      return { ...initialPreferences, ...saved, language: saved.language === 'en' ? 'en' : 'fa', defaults: { ...defaults, ...saved.defaults } };
     }
   } catch { /* Invalid preferences fall back to the factory values. */ }
   return { ...initialPreferences, defaults: { ...defaults } };
 }
 let preferences = readPreferences();
+const t = (key: Message) => messages[preferences.language][key];
+const tr = (key: Message) => `<span data-message="${key}">${t(key)}</span>`;
+const number = (value: number) => new Intl.NumberFormat(preferences.language).format(value);
+const percent = (value: number) => new Intl.NumberFormat(preferences.language, { style: 'percent' }).format(value / 100);
 let options = { ...preferences.defaults };
 let project: { id?: string; name: string; file: Blob } | undefined;
 let preview: Preview | undefined;
@@ -117,98 +127,108 @@ let galleryRequest = 0;
 const app = el('app');
 app.innerHTML = `
   <header class="topbar">
-    <button class="brand" id="brand" aria-label="Nebula Studio home">
-      <span class="brand-icon">${icon('scan-line')}</span><span>Nebula<span class="brand-muted"> / Studio</span></span>
+    <button class="brand" id="brand" data-aria="brandHome">
+      <img class="brand-icon" src="/nebula.svg" alt=""><span dir="ltr">Nebula<span class="brand-muted"> / Studio</span></span>
     </button>
-    <nav aria-label="Workspace">
-      <button data-view="studio">${icon('panels-top-left')}<span>Studio</span></button>
-      <button data-view="gallery">${icon('images')}<span>Gallery</span></button>
-      <button data-view="settings">${icon('settings-2')}<span>Settings</span></button>
+    <nav data-aria="workspace">
+      <button data-view="studio">${icon('panels-top-left')}${tr('studio')}</button>
+      <button data-view="gallery">${icon('images')}${tr('gallery')}</button>
+      <button data-view="settings">${icon('settings-2')}${tr('settings')}</button>
     </nav>
-    <div class="local"><i></i> Local workspace</div>
+    <div class="top-tools"><span class="local"><i></i>${tr('local')}</span><button class="icon-button language-shortcut" id="language-shortcut" data-aria="language" data-title="language">${languagesIcon}</button></div>
   </header>
   <main class="shell">
     <section id="studio" class="page">
       <div class="page-title">
-        <div><p class="eyebrow">IMAGE TO ASCII</p><h1>Conversion studio</h1></div>
-        <button class="button primary" id="choose">${icon('folder-open')} Open image</button>
+        <h1>${tr('studioTitle')}</h1>
+        <button class="button primary" id="choose">${icon('folder-open')}${tr('open')}</button>
       </div>
       <input id="file" type="file" hidden accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,image/jpeg,image/png,image/webp,image/bmp,image/tiff">
       <div class="workspace">
         <div class="viewer panel">
           <div class="panel-header">
-            <span class="section-title">${icon('scan')} Preview</span>
+            <span class="section-title">${icon('scan')}${tr('preview')}</span>
             <div class="preview-tools" id="preview-tools" hidden>
-              <button id="zoom-out" class="icon-button" aria-label="Zoom out">${icon('minus')}</button>
-              <button id="zoom-label" class="zoom-label" aria-label="Reset zoom">100%</button>
-              <button id="zoom-in" class="icon-button" aria-label="Zoom in">${icon('plus')}</button>
+              <button id="zoom-out" class="icon-button" data-aria="zoomOut">${icon('minus')}</button>
+              <button id="zoom-label" class="zoom-label" data-aria="zoomReset">100%</button>
+              <button id="zoom-in" class="icon-button" data-aria="zoomIn">${icon('plus')}</button>
             </div>
           </div>
-          <div id="empty" class="drop-zone">
-            <div class="star-field" aria-hidden="true"></div>
-            <div class="drop-symbol">${icon('image-plus')}</div>
-            <h2>Drop a photo here</h2>
-            <p>JPG, PNG, WebP, BMP or TIFF · up to 24 MB</p>
-            <button id="browse" class="button secondary">Browse files ${icon('arrow-up-right')}</button>
-          </div>
-          <div id="result" class="result" hidden>
-            <div class="image-pane"><div class="image-label"><span>Original</span><small id="original-size"></small></div><div class="image-scroll"><img id="original" alt="Original photograph"></div></div>
-            <div class="image-pane art-pane"><div class="image-label"><span>ASCII art</span><small id="grid-size"></small></div><div class="image-scroll"><img id="art" alt="Photo reconstructed with ASCII characters"></div></div>
+          <div class="preview-stage" id="preview-stage" aria-busy="false">
+            <div id="empty" class="drop-zone">
+              <div class="drop-content">
+                <div class="star-field" aria-hidden="true"></div>
+                <div class="drop-symbol">${icon('image-plus')}</div>
+                <h2>${tr('dropTitle')}</h2>
+                <p>${tr('fileTypes')}</p>
+                <button id="browse" class="button secondary">${tr('browse')} ${icon('arrow-up-right')}</button>
+              </div>
+              <button id="featured" class="featured">
+                <img src="/samples/${featured.file}" alt="">
+                <span class="feature-caption"><strong>${tr(featured.title)}</strong><span>${tr('demo')} ${icon('arrow-up-right')}</span></span>
+              </button>
+            </div>
+            <div id="result" class="result" hidden>
+              <div class="image-pane"><div class="image-label"><span>${photoIcon}${tr('original')}</span><small id="original-size" dir="ltr"></small></div><div class="image-scroll" dir="ltr"><img id="original" data-alt="originalAlt"></div></div>
+              <div class="image-pane art-pane"><div class="image-label"><span>${gridIcon}${tr('artwork')}</span><small id="grid-size" dir="auto"></small></div><div class="image-scroll" dir="ltr"><img id="art" data-alt="artworkAlt"></div></div>
+            </div>
+            <div class="scan-effect" aria-hidden="true"><div class="scan-grid"></div><div class="scan-beam"></div></div>
           </div>
           <div class="viewer-footer">
-            <span id="work-status" role="status">Waiting for an image</span>
-            <button class="text-button" id="copy" disabled>${icon('copy')} Copy text</button>
+            <span id="work-status" role="status"></span>
+            <button class="text-button" id="copy" disabled>${icon('copy')}${tr('copy')}</button>
           </div>
         </div>
         <aside class="panel controls">
-          <div class="panel-header"><span class="section-title">${icon('sliders-horizontal')} Render settings</span><button id="reset" class="icon-button" title="Reset controls" aria-label="Reset controls">${icon('rotate-ccw')}</button></div>
+          <div class="panel-header"><span class="section-title">${icon('sliders-horizontal')}${tr('renderSettings')}</span><button id="reset" class="icon-button" data-title="resetControls" data-aria="resetControls">${icon('rotate-ccw')}</button></div>
           <div class="controls-body">
-            <fieldset><legend>Render mode</legend><div class="mode-grid">${Object.entries(modes).map(([key, title], i) => `<button class="mode" data-mode="${key}" aria-pressed="false">${icon(['scan-line','palette','scan-face'][i])}<span>${title}</span></button>`).join('')}</div></fieldset>
-            <label class="field">Palette<select id="palette">${Object.entries(palettes).map(([key, title]) => `<option value="${key}">${title}</option>`).join('')}</select></label>
-            <label class="field range"><span>Columns <output id="width-value"></output></span><input id="width" type="range" min="40" max="500" step="1"></label>
-            <label class="field range"><span>Contrast <output id="contrast-value"></output></span><input id="contrast" type="range" min="50" max="200" step="1"></label>
-            <label class="field range"><span>Brightness <output id="brightness-value"></output></span><input id="brightness" type="range" min="50" max="150" step="1"></label>
-            <label class="toggle"><span>Invert character density</span><input id="invert" type="checkbox"></label>
-            <button class="button primary convert" id="convert" disabled>${icon('sparkles')} Convert image</button>
+            <fieldset><legend>${tr('mode')}</legend><div class="mode-grid">${Object.entries(modes).map(([key, title], i) => `<button class="mode" data-mode="${key}" aria-pressed="false">${icon(['scan-line','palette','scan-face'][i])}${tr(title)}</button>`).join('')}</div></fieldset>
+            <label class="field">${tr('palette')}<select id="palette">${Object.entries(palettes).map(([key, title]) => `<option value="${key}" data-message="${title}"></option>`).join('')}</select></label>
+            <label class="field range"><span>${tr('columns')} <output id="width-value"></output></span><input id="width" type="range" min="40" max="500" step="1"></label>
+            <label class="field range"><span>${tr('contrast')} <output id="contrast-value"></output></span><input id="contrast" type="range" min="50" max="200" step="1"></label>
+            <label class="field range"><span>${tr('brightness')} <output id="brightness-value"></output></span><input id="brightness" type="range" min="50" max="150" step="1"></label>
+            <label class="toggle"><span>${tr('invert')}</span><input id="invert" type="checkbox"></label>
+            <button class="button primary convert" id="convert" disabled>${icon('sparkles')}${tr('convert')}</button>
           </div>
         </aside>
-        <section class="panel samples" id="samples"><div class="panel-header"><span class="section-title">${icon('images')} Try a sample</span></div><div class="sample-list">
-          ${samples.map((sample, i) => `<button class="sample" data-sample="${i}"><img src="/samples/${sample.file}" alt=""><span>${sample.title}</span>${icon('arrow-up-right')}</button>`).join('')}
+        <section class="panel samples" id="samples"><div class="panel-header"><span class="section-title">${icon('images')}${tr('samples')}</span></div><div class="sample-list">
+          ${samples.map((sample, i) => `<button class="sample" data-sample="${i}"><img src="/samples/${sample.file}" alt="">${tr(sample.title)}${icon('arrow-up-right')}</button>`).join('')}
         </div></section>
-        <section class="panel export"><div class="panel-header"><span class="section-title">${icon('download')} Export</span></div><div class="export-body">
-          <label class="field">File format<select id="format">${Object.entries(formats).map(([key,[title]]) => `<option value="${key}">${title}</option>`).join('')}</select></label>
-          <button class="button primary" id="export" disabled>${icon('download')} Save file</button>
-          <button class="button secondary" id="save-project" disabled>${icon('bookmark')} Save to gallery</button>
+        <section class="panel export"><div class="panel-header"><span class="section-title">${icon('download')}${tr('export')}</span></div><div class="export-body">
+          <label class="field">${tr('fileFormat')}<select id="format">${Object.entries(formats).map(([key,[title]]) => `<option value="${key}" data-message="${title}"></option>`).join('')}</select></label>
+          <button class="button primary" id="export" disabled>${icon('download')}${tr('saveFile')}</button>
+          <button class="button secondary" id="save-project" disabled>${icon('bookmark')}${tr('saveProject')}</button>
         </div></section>
       </div>
     </section>
     <section id="gallery" class="page" hidden>
-      <div class="page-title"><div><p class="eyebrow">LOCAL WORKSPACE</p><h1>Gallery</h1></div><button class="button primary" id="new-conversion">${icon('plus')} Open image</button></div>
+      <div class="page-title"><h1>${tr('gallery')}</h1><button class="button primary" id="new-conversion">${icon('plus')}${tr('open')}</button></div>
       <div class="gallery-grid" id="gallery-grid"></div>
     </section>
     <section id="settings" class="page" hidden>
-      <div class="page-title"><div><p class="eyebrow">LOCAL WORKSPACE</p><h1>Settings</h1></div></div>
+      <div class="page-title"><h1>${tr('settings')}</h1></div>
       <div class="settings-grid">
         <section class="panel">
-          <div class="panel-header"><span class="section-title">${icon('settings-2')} Workspace</span></div>
+          <div class="panel-header"><span class="section-title">${icon('settings-2')}${tr('workspace')}</span></div>
           <div class="preferences">
-            <label class="toggle"><span><strong>Live preview</strong><small>Render again when you adjust a setting.</small></span><input id="auto-render" type="checkbox"></label>
-            <label class="toggle"><span><strong>Reduce motion</strong><small>Use fewer animations in the studio.</small></span><input id="reduce-motion" type="checkbox"></label>
+            <label class="field"><span class="label-icon">${languagesIcon}${tr('language')}</span><select id="language"><option value="fa" lang="fa">فارسی</option><option value="en" lang="en">English</option></select></label>
+            <label class="toggle"><span><strong>${tr('livePreview')}</strong><small>${tr('liveHelp')}</small></span><input id="auto-render" type="checkbox"></label>
+            <label class="toggle"><span><strong>${tr('reduceMotion')}</strong><small>${tr('motionHelp')}</small></span><input id="reduce-motion" type="checkbox"></label>
           </div>
         </section>
         <section class="panel">
-          <div class="panel-header"><span class="section-title">${icon('sliders-horizontal')} New image defaults</span></div>
+          <div class="panel-header"><span class="section-title">${icon('sliders-horizontal')}${tr('defaults')}</span></div>
           <div class="preferences">
             <p id="default-summary"></p>
-            <button class="button primary" id="save-defaults">${icon('bookmark')} Use current render settings</button>
-            <button class="button secondary" id="reset-defaults">${icon('rotate-ccw')} Restore factory defaults</button>
+            <button class="button primary" id="save-defaults">${icon('bookmark')}${tr('saveDefaults')}</button>
+            <button class="button secondary" id="reset-defaults">${icon('rotate-ccw')}${tr('resetDefaults')}</button>
           </div>
         </section>
       </div>
     </section>
   </main>
   <div id="toast" class="toast" role="status" hidden></div>
-  <dialog id="delete-dialog"><form method="dialog"><h2>Remove from gallery?</h2><p>The saved project will be removed from this device.</p><div><button class="button secondary" value="cancel" autofocus>Cancel</button><button class="button danger" value="delete">Remove</button></div></form></dialog>
+  <dialog id="delete-dialog"><form method="dialog"><h2>${tr('deleteTitle')}</h2><p>${tr('deleteHelp')}</p><div><button class="button secondary" value="cancel" autofocus>${tr('cancel')}</button><button class="button danger" value="delete">${tr('remove')}</button></div></form></dialog>
 `;
 
 const fileInput = el<HTMLInputElement>('file');
@@ -216,6 +236,28 @@ const palette = el<HTMLSelectElement>('palette');
 const invert = el<HTMLInputElement>('invert');
 const autoRender = el<HTMLInputElement>('auto-render');
 const reduceMotion = el<HTMLInputElement>('reduce-motion');
+const language = el<HTMLSelectElement>('language');
+
+function syncLanguage() {
+  document.documentElement.lang = preferences.language;
+  document.documentElement.dir = preferences.language === 'fa' ? 'rtl' : 'ltr';
+  document.title = preferences.language === 'fa' ? 'استودیو ASCII نبولا' : 'Nebula ASCII Studio';
+  app.querySelectorAll<HTMLElement>('[data-message]').forEach(element => {
+    element.textContent = t(element.dataset.message as Message);
+  });
+  for (const [data, attribute] of [['aria', 'aria-label'], ['title', 'title'], ['alt', 'alt']] as const) {
+    app.querySelectorAll<HTMLElement>('[data-' + data + ']').forEach(element => {
+      element.setAttribute(attribute, t(element.dataset[data] as Message));
+    });
+  }
+  language.value = preferences.language;
+  el('toast').hidden = true;
+  syncControls();
+  syncPreferences();
+  syncActions();
+  syncPreviewLabels();
+  if (view === 'gallery') void populateGallery();
+}
 
 function toast(message: string, error = false) {
   const element = el('toast');
@@ -228,6 +270,11 @@ function toast(message: string, error = false) {
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function report(key: Message, error: unknown) {
+  console.error(error);
+  toast(t(key), true);
 }
 
 function show(viewName: View) {
@@ -249,7 +296,7 @@ function syncControls() {
   for (const key of ['width', 'contrast', 'brightness'] as const) {
     const value = key === 'width' ? options[key] : Math.round(options[key] * 100);
     el<HTMLInputElement>(key).value = String(value);
-    el(key + '-value').textContent = value + (key === 'width' ? ' col' : '%');
+    el(key + '-value').textContent = key === 'width' ? number(value) + ' ' + t('col') : percent(value);
   }
 }
 
@@ -258,12 +305,12 @@ function syncPreferences() {
   reduceMotion.checked = preferences.reduceMotion;
   document.documentElement.classList.toggle('reduced-motion', preferences.reduceMotion);
   const d = preferences.defaults;
-  el('default-summary').textContent = modes[d.mode] + ' · ' + palettes[d.palette] + ' · ' + d.width + ' columns';
+  el('default-summary').textContent = t(modes[d.mode]) + ' · ' + t(palettes[d.palette]) + ' · ' + number(d.width) + ' ' + t('col');
 }
 
 function persistPreferences() {
   try { localStorage.setItem('nebula.preferences', JSON.stringify(preferences)); }
-  catch (error) { toast('Could not save preferences: ' + errorText(error), true); }
+  catch (error) { report('preferencesError', error); }
   syncPreferences();
 }
 
@@ -275,9 +322,18 @@ function syncActions() {
   el('result').hidden = !preview;
   el('empty').hidden = !!preview;
   el('preview-tools').hidden = !preview;
-  el('work-status').textContent = busy ? 'Converting image…' :
-    project ? project.name + (dirty ? ' · Ready to convert' : '') : 'Waiting for an image';
-  el('work-status').classList.toggle('processing', busy);
+  const status = el('work-status');
+  status.replaceChildren();
+  if (busy || !project) {
+    status.textContent = t(busy ? 'converting' : 'waiting');
+  } else {
+    const file = document.createElement('bdi');
+    file.textContent = project.name;
+    status.append(file);
+    if (dirty) status.append(' · ' + t('ready'));
+  }
+  status.classList.toggle('processing', busy);
+  el('preview-stage').setAttribute('aria-busy', String(busy));
 }
 
 function optionsChanged() {
@@ -291,7 +347,7 @@ function optionsChanged() {
 function readImage(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('The image could not be read.'));
+    reader.onerror = () => reject(new Error(t('readError')));
     reader.onload = () => resolve(String(reader.result).split(',', 2)[1]);
     reader.readAsDataURL(file);
   });
@@ -299,7 +355,7 @@ function readImage(file: Blob): Promise<string> {
 
 async function openImage(file: Blob, name: string, saved?: Project) {
   if (!file.size || file.size > 24 * 1024 * 1024) {
-    toast('Choose a non-empty image under 24 MB.', true);
+    toast(t('fileLimit'), true);
     return;
   }
   clearTimeout(renderTimer);
@@ -329,12 +385,20 @@ async function convert() {
     renderedOptions = selected;
     dirty = JSON.stringify(selected) !== JSON.stringify(options);
     el<HTMLImageElement>('original').src = 'data:image/jpeg;base64,' + next.source;
-    el<HTMLImageElement>('art').src = 'data:image/png;base64,' + next.art;
-    el('original-size').textContent = next.originalWidth + ' × ' + next.originalHeight;
-    el('grid-size').textContent = next.width + ' × ' + next.height + ' glyphs';
-    setZoom(zoom);
+    const art = el<HTMLImageElement>('art');
+    art.src = 'data:image/png;base64,' + next.art;
+    syncPreviewLabels();
+    void art.decode().then(() => {
+      if (project === current && preview === next) revealArtwork();
+    }).catch(() => { /* A newer image can replace this one during decoding. */ });
   } catch (error) {
-    if (project === current) toast(errorText(error), true);
+    if (project === current) {
+      const detail = errorText(error);
+      const key = detail.includes('32 megapixels') ? 'pixelLimit'
+        : detail.includes('very tall') ? 'tallImage'
+        : detail.includes('readable JPG') || detail.includes('Could not decode') ? 'invalidImage' : 'renderError';
+      report(key, error);
+    }
   } finally {
     busy = false;
     syncActions();
@@ -342,9 +406,26 @@ async function convert() {
   }
 }
 
+let reveal: Animation | undefined;
+function revealArtwork() {
+  reveal?.cancel();
+  if (preferences.reduceMotion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  reveal = el('art').animate([
+    { clipPath: 'inset(0 0 100% 0)', filter: 'brightness(1.6)', opacity: 0.35 },
+    { clipPath: 'inset(0 0 0 0)', filter: 'brightness(1)', opacity: 1 },
+  ], { duration: 600, easing: 'cubic-bezier(.2,.7,.2,1)' });
+}
+
+function syncPreviewLabels() {
+  setZoom(zoom);
+  if (!preview) return;
+  el('original-size').textContent = number(preview.originalWidth) + ' × ' + number(preview.originalHeight);
+  el('grid-size').textContent = number(preview.width) + ' × ' + number(preview.height) + ' ' + t('glyphs');
+}
+
 function setZoom(value: number) {
   zoom = Math.max(75, Math.min(250, value));
-  el('zoom-label').textContent = zoom + '%';
+  el('zoom-label').textContent = percent(zoom);
   for (const id of ['original', 'art']) el(id).style.setProperty('--zoom', zoom + '%');
 }
 
@@ -355,13 +436,13 @@ async function transferArt(format: ExportFormat) {
   transfer = true;
   syncActions();
   try {
-    const path = await save({ defaultPath: stem + (format === 'comparison' ? '-comparison.' : '-ascii.') + ext, filters: [{ name: label, extensions: [ext] }] });
+    const path = await save({ defaultPath: stem + (format === 'comparison' ? '-comparison.' : '-ascii.') + ext, filters: [{ name: t(label), extensions: [ext] }] });
     if (!path) return;
     const result = await invoke<ArrayBuffer | number[]>('export_art', { format });
     await writeFile(path, new Uint8Array(result));
-    toast(label + ' saved.');
+    toast(t('fileSaved'));
   } catch (error) {
-    if (!/cancelled|canceled/i.test(errorText(error))) toast('Could not save: ' + errorText(error), true);
+    if (!/cancelled|canceled/i.test(errorText(error))) report('saveError', error);
   } finally {
     transfer = false;
     syncActions();
@@ -405,9 +486,9 @@ async function saveProject() {
       thumb: thumbnail,
     } satisfies Project));
     current.id = id;
-    toast('Project saved to the gallery.');
+    toast(t('projectSaved'));
     if (view === 'gallery') void populateGallery();
-  } catch (error) { toast('Could not save project: ' + errorText(error), true); }
+  } catch (error) { report('projectError', error); }
   finally {
     transfer = false;
     syncActions();
@@ -418,23 +499,23 @@ async function saveProject() {
 async function populateGallery() {
   const request = ++galleryRequest;
   const grid = el('gallery-grid');
-  grid.innerHTML = '<p class="empty-gallery">Loading saved projects…</p>';
+  grid.innerHTML = `<p class="empty-gallery">${t('loadingGallery')}</p>`;
   try {
     const entries = await galleryOperation<Project[]>('readonly', store => store.getAll());
     if (request !== galleryRequest || view !== 'gallery') return;
     grid.replaceChildren();
     if (!entries.length) {
-      grid.innerHTML = '<div class="panel empty-gallery"><h2>No saved projects yet</h2><p>Convert an image and select Save to gallery to find it here again.</p></div>';
+      grid.innerHTML = `<div class="panel empty-gallery">${icon('images')}<h2>${t('emptyGallery')}</h2><p>${t('galleryHelp')}</p></div>`;
     }
     for (const entry of entries.sort((a, b) => b.created - a.created)) {
       const card = document.createElement('article');
       card.className = 'panel gallery-card';
-      card.innerHTML = `<button class="gallery-open"><img alt=""><span></span></button><div class="gallery-meta"><time></time><button class="icon-button gallery-delete" aria-label="Remove project" title="Remove project">${icon('trash-2')}</button></div>`;
+      card.innerHTML = `<button class="gallery-open"><img alt=""><bdi></bdi></button><div class="gallery-meta"><time></time><button class="icon-button gallery-delete" aria-label="${t('removeProject')}" title="${t('removeProject')}">${icon('trash-2')}</button></div>`;
       card.querySelector('img')!.src = entry.thumb;
-      card.querySelector('span')!.textContent = entry.name;
+      card.querySelector('bdi')!.textContent = entry.name;
       const time = card.querySelector('time')!;
       time.dateTime = new Date(entry.created).toISOString();
-      time.textContent = new Date(entry.created).toLocaleDateString();
+      time.textContent = new Date(entry.created).toLocaleDateString(preferences.language);
       card.querySelector('button')!.onclick = () => { ++inputRequest; void openImage(entry.file, entry.name, entry); };
       card.querySelector<HTMLButtonElement>('.gallery-delete')!.onclick = () => {
         const dialog = el<HTMLDialogElement>('delete-dialog');
@@ -445,31 +526,39 @@ async function populateGallery() {
             await galleryOperation('readwrite', store => store.delete(entry.id));
             if (project?.id === entry.id) project.id = undefined;
             await populateGallery();
-            toast('Project removed.');
-          } catch (error) { toast(errorText(error), true); }
+            toast(t('projectRemoved'));
+          } catch (error) { report('removeError', error); }
         }, { once: true });
         dialog.showModal();
       };
       grid.append(card);
     }
   } catch (error) {
-    grid.textContent = 'Could not open gallery: ' + errorText(error);
+    if (request !== galleryRequest || view !== 'gallery') return;
+    console.error(error);
+    grid.textContent = t('galleryError');
   }
 }
 
-async function loadSample(index: number) {
+async function loadSample(sample: { file: string; title: Message }) {
   const request = ++inputRequest;
-  const sample = samples[index];
   try {
     const response = await fetch('/samples/' + sample.file);
-    if (!response.ok) throw new Error('Sample unavailable.');
+    if (!response.ok) throw new Error(t('sampleError'));
     const file = await response.blob();
     if (request === inputRequest) await openImage(file, sample.file);
-  } catch (error) { toast(errorText(error), true); }
+  } catch (error) { if (request === inputRequest) report('sampleError', error); }
 }
 
 for (const id of ['choose', 'browse', 'new-conversion']) el(id).onclick = () => fileInput.click();
 el('brand').onclick = () => show('studio');
+el('featured').onclick = () => void loadSample(featured);
+el('language-shortcut').onclick = () => { show('settings'); language.focus(); };
+language.onchange = () => {
+  preferences.language = language.value === 'en' ? 'en' : 'fa';
+  persistPreferences();
+  syncLanguage();
+};
 fileInput.onchange = () => {
   const file = fileInput.files?.[0];
   fileInput.value = '';
@@ -479,7 +568,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button => {
   button.onclick = () => show(button.dataset.view as View);
 });
 document.querySelectorAll<HTMLButtonElement>('[data-sample]').forEach(button => {
-  button.onclick = () => void loadSample(Number(button.dataset.sample));
+  button.onclick = () => void loadSample(samples[Number(button.dataset.sample)]);
 });
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => {
   button.onclick = () => { options.mode = button.dataset.mode as Options['mode']; optionsChanged(); };
@@ -497,8 +586,8 @@ el('zoom-out').onclick = () => setZoom(zoom - 25);
 el('zoom-label').onclick = () => setZoom(100);
 el('copy').onclick = async () => {
   if (!preview) return;
-  try { await writeText(preview.text); toast('ASCII text copied.'); }
-  catch (error) { toast(errorText(error), true); }
+  try { await writeText(preview.text); toast(t('copied')); }
+  catch (error) { report('copyError', error); }
 };
 el('export').onclick = () => void transferArt(el<HTMLSelectElement>('format').value as ExportFormat);
 el('save-project').onclick = () => void saveProject();
@@ -508,9 +597,13 @@ autoRender.onchange = () => {
   persistPreferences();
   if (preferences.autoRender && dirty) void convert();
 };
-reduceMotion.onchange = () => { preferences.reduceMotion = reduceMotion.checked; persistPreferences(); };
-el('save-defaults').onclick = () => { preferences.defaults = { ...options }; persistPreferences(); toast('Render defaults saved.'); };
-el('reset-defaults').onclick = () => { preferences.defaults = { ...defaults }; persistPreferences(); toast('Factory defaults restored.'); };
+reduceMotion.onchange = () => {
+  preferences.reduceMotion = reduceMotion.checked;
+  if (preferences.reduceMotion) reveal?.cancel();
+  persistPreferences();
+};
+el('save-defaults').onclick = () => { preferences.defaults = { ...options }; persistPreferences(); toast(t('defaultsSaved')); };
+el('reset-defaults').onclick = () => { preferences.defaults = { ...defaults }; persistPreferences(); toast(t('defaultsReset')); };
 
 const dropZone = el('empty');
 window.addEventListener('dragover', event => {
@@ -528,12 +621,10 @@ window.addEventListener('drop', event => {
   if (file) { ++inputRequest; void openImage(file, file.name); }
 });
 window.addEventListener('keydown', event => {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
+  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyO') {
     event.preventDefault(); fileInput.click();
   }
 });
 
-syncControls();
-syncPreferences();
-syncActions();
+syncLanguage();
 show('studio');
