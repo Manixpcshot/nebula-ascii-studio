@@ -1,3 +1,5 @@
+import compareIcon from 'lucide-static/icons/chevrons-left-right.svg?raw';
+import columnsIcon from 'lucide-static/icons/columns-2.svg?raw';
 import icon0 from 'lucide-static/icons/scan-line.svg?raw';
 import icon1 from 'lucide-static/icons/panels-top-left.svg?raw';
 import icon2 from 'lucide-static/icons/images.svg?raw';
@@ -115,6 +117,7 @@ let preview: Preview | undefined;
 let renderedOptions: Options | undefined;
 let view: View = 'studio';
 let zoom = 100;
+let comparisonMode: 'slider' | 'split' = 'slider';
 let dirty = false;
 let busy = false;
 let transfer = false;
@@ -149,9 +152,12 @@ app.innerHTML = `
           <div class="panel-header">
             <span class="section-title">${icon('scan')}${tr('preview')}</span>
             <div class="preview-tools" id="preview-tools" hidden>
+              <button id="comparison-mode" class="icon-button" data-aria="splitView" data-title="splitView">${columnsIcon}</button>
+              <div id="zoom-tools" class="preview-tools" hidden>
               <button id="zoom-out" class="icon-button" data-aria="zoomOut">${icon('minus')}</button>
               <button id="zoom-label" class="zoom-label" data-aria="zoomReset">100%</button>
               <button id="zoom-in" class="icon-button" data-aria="zoomIn">${icon('plus')}</button>
+              </div>
             </div>
           </div>
           <div class="preview-stage" id="preview-stage" aria-busy="false">
@@ -167,6 +173,22 @@ app.innerHTML = `
                 <img src="/samples/${featured.file}" alt="">
                 <span class="feature-caption"><strong>${tr(featured.title)}</strong><span>${tr('demo')} ${icon('arrow-up-right')}</span></span>
               </button>
+            </div>
+            <div id="comparison" class="comparison" hidden>
+              <div class="comparison-labels" dir="ltr">
+                <span dir="auto">${photoIcon}${tr('original')}</span>
+                <span dir="auto">${gridIcon}${tr('artwork')}</span>
+              </div>
+              <div class="comparison-canvas" id="comparison-canvas" dir="ltr">
+                <div class="comparison-images">
+                  <img id="comparison-art" data-alt="artworkAlt" draggable="false">
+                  <img id="comparison-original" data-alt="originalAlt" draggable="false">
+                  <div class="comparison-divider" aria-hidden="true"></div>
+                  <div class="comparison-handle" aria-hidden="true">${compareIcon}</div>
+                </div>
+                <input id="comparison-range" class="comparison-range" type="range" min="0" max="100" value="50" data-aria="compareImages">
+              </div>
+              <p class="comparison-help">${tr('compareHelp')}</p>
             </div>
             <div id="result" class="result" hidden>
               <div class="image-pane"><div class="image-label"><span>${photoIcon}${tr('original')}</span><small id="original-size" dir="ltr"></small></div><div class="image-scroll" dir="ltr"><img id="original" data-alt="originalAlt"></div></div>
@@ -320,7 +342,9 @@ function syncActions() {
   el<HTMLButtonElement>('copy').disabled = !preview || busy;
   el<HTMLButtonElement>('export').disabled = !preview || busy || transfer || dirty;
   el<HTMLButtonElement>('save-project').disabled = !preview || busy || transfer || dirty;
-  el('result').hidden = !preview;
+  el('comparison').hidden = !preview || comparisonMode !== 'slider';
+  el('result').hidden = !preview || comparisonMode !== 'split';
+  el('zoom-tools').hidden = comparisonMode !== 'split';
   el('empty').hidden = !!preview;
   el('preview-tools').hidden = !preview;
   const status = el('work-status');
@@ -365,6 +389,7 @@ async function openImage(file: Blob, name: string, saved?: Project) {
   dirty = true;
   preview = undefined;
   zoom = 100;
+  setComparisonPosition(50);
   syncControls();
   syncActions();
   show('studio');
@@ -388,6 +413,9 @@ async function convert() {
     el<HTMLImageElement>('original').src = 'data:image/jpeg;base64,' + next.source;
     const art = el<HTMLImageElement>('art');
     art.src = 'data:image/png;base64,' + next.art;
+    el<HTMLImageElement>('comparison-original').src = el<HTMLImageElement>('original').src;
+    el<HTMLImageElement>('comparison-art').src = art.src;
+    el('comparison-canvas').style.setProperty('--image-ratio', String(next.originalWidth / next.originalHeight));
     syncPreviewLabels();
     void art.decode().then(() => {
       if (project === current && preview === next) revealArtwork();
@@ -411,6 +439,10 @@ let reveal: Animation | undefined;
 function revealArtwork() {
   reveal?.cancel();
   if (preferences.reduceMotion || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (comparisonMode === 'slider') {
+    reveal = el('comparison-art').animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 300 });
+    return;
+  }
   reveal = el('art').animate([
     { clipPath: 'inset(0 0 100% 0)', filter: 'brightness(1.6)', opacity: 0.35 },
     { clipPath: 'inset(0 0 0 0)', filter: 'brightness(1)', opacity: 1 },
@@ -582,6 +614,66 @@ for (const key of ['width', 'contrast', 'brightness'] as const) {
 }
 el('reset').onclick = () => { options = { ...preferences.defaults }; optionsChanged(); };
 el('convert').onclick = () => { clearTimeout(renderTimer); void convert(); };
+const comparisonCanvas = el('comparison-canvas');
+const comparisonRange = el<HTMLInputElement>('comparison-range');
+function setComparisonPosition(value: number) {
+  comparisonRange.value = String(Math.round(Math.max(0, Math.min(100, value))));
+  comparisonCanvas.style.setProperty('--split', comparisonRange.value + '%');
+}
+
+function moveDivider(event: PointerEvent) {
+  const bounds = comparisonCanvas.querySelector('.comparison-images')!.getBoundingClientRect();
+  setComparisonPosition((event.clientX - bounds.left) / bounds.width * 100);
+}
+
+comparisonRange.oninput = () => setComparisonPosition(comparisonRange.valueAsNumber);
+let drag: { id: number; x: number; y: number; moved: boolean } | undefined;
+comparisonCanvas.onpointerdown = event => {
+  if (event.target === comparisonRange) return;
+  if (drag || !event.isPrimary || event.button !== 0) return;
+  drag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+  comparisonCanvas.setPointerCapture(event.pointerId);
+  if (event.pointerType === 'mouse') {
+    moveDivider(event);
+    comparisonRange.focus({ preventScroll: true });
+  }
+};
+comparisonCanvas.onpointermove = event => {
+  if (!drag || event.pointerId !== drag.id) return;
+  if (!drag.moved && event.pointerType !== 'mouse') {
+    const dx = Math.abs(event.clientX - drag.x);
+    const dy = Math.abs(event.clientY - drag.y);
+    if (dx < 6 || dx < dy) return;
+  }
+  drag.moved = true;
+  moveDivider(event);
+};
+comparisonCanvas.onpointerup = event => {
+  if (!drag || event.pointerId !== drag.id) return;
+  if (drag.moved || Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) moveDivider(event);
+  drag = undefined;
+};
+comparisonCanvas.onlostpointercapture = event => {
+  if (drag?.id === event.pointerId) drag = undefined;
+};
+
+function syncComparisonButton() {
+  const button = el('comparison-mode');
+  const split = comparisonMode === 'split';
+  const key = split ? 'sliderView' : 'splitView';
+  button.innerHTML = split ? compareIcon : columnsIcon;
+  button.dataset.aria = key;
+  button.dataset.title = key;
+  button.setAttribute('aria-label', t(key));
+  button.title = t(key);
+}
+
+el('comparison-mode').onclick = () => {
+  comparisonMode = comparisonMode === 'slider' ? 'split' : 'slider';
+  syncComparisonButton();
+  syncActions();
+};
+
 el('zoom-in').onclick = () => setZoom(zoom + 25);
 el('zoom-out').onclick = () => setZoom(zoom - 25);
 el('zoom-label').onclick = () => setZoom(100);
