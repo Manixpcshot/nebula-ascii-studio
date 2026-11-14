@@ -278,6 +278,7 @@ function report(key: Message, error: unknown) {
 }
 
 function show(viewName: View) {
+  if (viewName !== view) window.scrollTo(0, 0);
   view = viewName;
   for (const page of ['studio', 'gallery', 'settings']) el(page).hidden = page !== view;
   document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button => {

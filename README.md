@@ -25,7 +25,7 @@ For Android, set up JDK 21 and Android SDK/NDK according to the Tauri guide. Ins
 
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
-npm run tauri -- android init
+npm run android:init
 npm run tauri -- android build --apk --debug --target aarch64 x86_64
 ```
 
